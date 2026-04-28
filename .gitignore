@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtualenv (this folder is acting as one — Lib/Scripts/pyvenv.cfg)
+Lib/
+Scripts/
+Include/
+pyvenv.cfg
+.venv/
+venv/
+
+# Bot runtime state / logs
+bot_state.json
+*.log
+
+# Local backtest output
+backtest_trades.csv
+backtest_v2_trades.csv
+
+# Strategy source material (large, private)
+*.pdf
+*.mp4
+*.xlsx
+
+# Local files containing plaintext token — DO NOT commit
+start_bot.bat
+RESUME_TOMORROW.md
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/

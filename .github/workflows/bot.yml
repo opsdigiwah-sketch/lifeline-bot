@@ -1,0 +1,30 @@
+name: Lifeline Trading Bot
+
+on:
+  schedule:
+    # 03:30 UTC = 09:00 IST, Mon-Fri (GH cron may delay 5-15 min, so we start early)
+    - cron: '30 3 * * 1-5'
+  workflow_dispatch:  # manual trigger from Actions tab
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours; covers 9:15 AM - 3:15 PM IST squareoff
+    env:
+      TZ: Asia/Kolkata
+      PYTHONIOENCODING: utf-8
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        run: python ZERO_TOUCH_BOT.py
