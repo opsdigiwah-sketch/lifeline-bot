@@ -1,15 +1,15 @@
 name: Lifeline Trading Bot
 
 on:
-  schedule:
-    # 03:30 UTC = 09:00 IST, Mon-Fri (GH cron may delay 5-15 min, so we start early)
-    - cron: '30 3 * * 1-5'
-  workflow_dispatch:  # manual trigger from Actions tab
+  # schedule trigger REMOVED — caused 2.5hr queue delays on free runners.
+  # cron-job.org hits the GitHub API at 9:20 AM IST (3:50 UTC) Mon-Fri,
+  # which fires workflow_dispatch instantly with no queue wait.
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hours; covers 9:15 AM - 3:15 PM IST squareoff
+    timeout-minutes: 355  # 5h55m — 9:20 IST start → 3:15 IST squareoff = 5h55m
     env:
       TZ: Asia/Kolkata
       PYTHONIOENCODING: utf-8
