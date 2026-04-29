@@ -35,6 +35,21 @@ import requests
 import warnings
 warnings.filterwarnings("ignore")
 
+def to_float(x):
+    """Coerce scalar/Series/ndarray/0-d to a plain Python float.
+    yfinance occasionally returns multi-index columns or duplicate columns,
+    so df['Close'].iloc[-1] can be a Series instead of scalar — this handles it."""
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        try:
+            arr = np.asarray(x).flatten()
+            if arr.size == 0:
+                return float("nan")
+            return float(arr[0])
+        except Exception:
+            return float("nan")
+
 # ─────────────────────────────────────────────────────────────────
 # 🔑 CONFIG — Sirf 2 cheezein fill karna (Telegram)
 # ─────────────────────────────────────────────────────────────────
@@ -169,10 +184,14 @@ def square_off_all(dhan, state):
                 except: pass
             df = fetch(pos["yf_ticker"])
             if df is not None and not df.empty:
-                close_px = float(df["Close"].iloc[-1])
-                pnl = (close_px - pos["entry"]) * pos["qty"] if pos["side"] == "LONG" \
-                      else (pos["entry"] - close_px) * pos["qty"]
-                state["daily_pnl"] += pnl
+                close_px = to_float(df["Close"].iloc[-1])
+                if close_px != close_px:  # NaN check
+                    raise ValueError("close price NaN")
+                entry = to_float(pos["entry"])
+                qty = to_float(pos["qty"])
+                pnl = (close_px - entry) * qty if pos["side"] == "LONG" \
+                      else (entry - close_px) * qty
+                state["daily_pnl"] = to_float(state.get("daily_pnl", 0)) + pnl
                 tg(f"🔚 {sym} squared off @ ₹{close_px:.2f} | P&L: ₹{pnl:+.0f}")
             else:
                 tg(f"🔚 {sym} squared off (no live price)")
@@ -208,10 +227,15 @@ def fetch(ticker):
         if df.empty: return None
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
+        # Drop duplicate columns (yfinance edge case: 'Close' + 'Adj Close' both flatten)
+        df = df.loc[:, ~df.columns.duplicated()]
         df.index = pd.to_datetime(df.index)
         if df.index.tz is not None:
             df.index = df.index.tz_convert("Asia/Kolkata").tz_localize(None)
-        return df[["Open","High","Low","Close","Volume"]].dropna()
+        needed = ["Open","High","Low","Close","Volume"]
+        if not all(c in df.columns for c in needed):
+            return None
+        return df[needed].dropna()
     except: return None
 
 # ─────────────────────────────────────────────────────────────────
@@ -340,11 +364,17 @@ def oi_check(sess, symbol, side):
 # ─────────────────────────────────────────────────────────────────
 def manage_positions(state):
     for sym, p in list(state["open_positions"].items()):
-        df = fetch(p["yf_ticker"])
-        if df is None: continue
-        last = df.iloc[-1]
-        c = float(last["Close"]); h = float(last["High"]); l = float(last["Low"])
-        risk_per = p["entry_risk"]
+        try:
+            df = fetch(p["yf_ticker"])
+            if df is None: continue
+            last = df.iloc[-1]
+            c = to_float(last["Close"]); h = to_float(last["High"]); l = to_float(last["Low"])
+            if any(v != v for v in (c, h, l)):  # NaN guard
+                continue
+            risk_per = to_float(p["entry_risk"])
+        except Exception as e:
+            print(f"⚠️ manage {sym} skip: {e}")
+            continue
 
         if p["side"] == "LONG":
             R = (c - p["entry"]) / risk_per
@@ -405,18 +435,25 @@ def bot_loop():
 
             # End of day square off
             if now >= SQUARE_OFF:
-                if state["open_positions"]:
-                    tg("⏰ 3:15 PM — Squaring off all positions")
-                    try:
-                        square_off_all(dhan, state)
-                    except Exception as e:
-                        tg(f"⚠️ Squareoff failed: {e} — clearing state")
+                try:
+                    if state["open_positions"]:
+                        tg("⏰ 3:15 PM — Squaring off all positions")
+                        try:
+                            square_off_all(dhan, state)
+                        except Exception as e:
+                            tg(f"⚠️ Squareoff inner error: {e}")
+                        # Force-clear regardless so the loop can never re-enter this branch
                         state["open_positions"] = {}
                         save_state(state)
-                tg(f"📊 <b>Day Summary</b>\n"
-                   f"Trades: {state['trades_today']}\n"
-                   f"P&L: ₹{state['daily_pnl']:+,.2f}\n"
-                   f"Bot stopping for the day.")
+                    pnl_val = to_float(state.get("daily_pnl", 0))
+                    if pnl_val != pnl_val:  # NaN
+                        pnl_val = 0.0
+                    tg(f"📊 <b>Day Summary</b>\n"
+                       f"Trades: {state.get('trades_today', 0)}\n"
+                       f"P&L: ₹{pnl_val:+,.2f}\n"
+                       f"Bot stopping for the day.")
+                except Exception as e:
+                    print(f"⚠️ Summary error: {e}")
                 break
 
             # Daily loss limit
@@ -485,6 +522,11 @@ def bot_loop():
             break
         except Exception as e:
             tg(f"⚠️ Error: {e}")
+            # Safety net: if we hit an unhandled error past squareoff time,
+            # bail instead of looping forever until GitHub Actions kills the job.
+            if datetime.now().time() >= SQUARE_OFF:
+                tg("🛑 Bot exiting — error past squareoff time, no point retrying")
+                break
             time.sleep(60)
 
 if __name__ == "__main__":
