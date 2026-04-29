@@ -156,26 +156,30 @@ def place_order(dhan, security_id, side, qty, price, sl, target):
 
 def square_off_all(dhan, state):
     for sym, pos in list(state["open_positions"].items()):
-        if dhan and not PAPER_MODE:
-            try:
-                dhan.place_order(
-                    security_id=str(pos["security_id"]),
-                    exchange_segment=dhan.NSE,
-                    transaction_type=dhan.SELL if pos["side"] == "LONG" else dhan.BUY,
-                    quantity=pos["qty"],
-                    order_type=dhan.MARKET,
-                    product_type=dhan.INTRA, price=0)
-            except: pass
-        # Mark closed in state
-        df = yf.download(pos["yf_ticker"], period="1d", interval="5m",
-                         progress=False, auto_adjust=False)
-        if not df.empty:
-            close_px = float(df["Close"].iloc[-1])
-            pnl = (close_px - pos["entry"]) * pos["qty"] if pos["side"] == "LONG" \
-                  else (pos["entry"] - close_px) * pos["qty"]
-            state["daily_pnl"] += pnl
-            tg(f"🔚 {sym} squared off @ ₹{close_px:.2f} | P&L: ₹{pnl:+.0f}")
-        del state["open_positions"][sym]
+        try:
+            if dhan and not PAPER_MODE:
+                try:
+                    dhan.place_order(
+                        security_id=str(pos["security_id"]),
+                        exchange_segment=dhan.NSE,
+                        transaction_type=dhan.SELL if pos["side"] == "LONG" else dhan.BUY,
+                        quantity=pos["qty"],
+                        order_type=dhan.MARKET,
+                        product_type=dhan.INTRA, price=0)
+                except: pass
+            df = fetch(pos["yf_ticker"])
+            if df is not None and not df.empty:
+                close_px = float(df["Close"].iloc[-1])
+                pnl = (close_px - pos["entry"]) * pos["qty"] if pos["side"] == "LONG" \
+                      else (pos["entry"] - close_px) * pos["qty"]
+                state["daily_pnl"] += pnl
+                tg(f"🔚 {sym} squared off @ ₹{close_px:.2f} | P&L: ₹{pnl:+.0f}")
+            else:
+                tg(f"🔚 {sym} squared off (no live price)")
+        except Exception as e:
+            tg(f"⚠️ {sym} squareoff issue: {e} — position cleared")
+        finally:
+            state["open_positions"].pop(sym, None)
     save_state(state)
 
 # ─────────────────────────────────────────────────────────────────
@@ -403,7 +407,12 @@ def bot_loop():
             if now >= SQUARE_OFF:
                 if state["open_positions"]:
                     tg("⏰ 3:15 PM — Squaring off all positions")
-                    square_off_all(dhan, state)
+                    try:
+                        square_off_all(dhan, state)
+                    except Exception as e:
+                        tg(f"⚠️ Squareoff failed: {e} — clearing state")
+                        state["open_positions"] = {}
+                        save_state(state)
                 tg(f"📊 <b>Day Summary</b>\n"
                    f"Trades: {state['trades_today']}\n"
                    f"P&L: ₹{state['daily_pnl']:+,.2f}\n"
