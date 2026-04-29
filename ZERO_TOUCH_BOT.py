@@ -72,22 +72,35 @@ PAPER_MODE        = True
 # WATCHLIST (high-quality F&O stocks)
 # ─────────────────────────────────────────────────────────────────
 WATCHLIST = [
-    ("RELIANCE",   "RELIANCE.NS",   2885),  # security_id from Dhan
-    ("HDFCBANK",   "HDFCBANK.NS",   1333),
-    ("ICICIBANK",  "ICICIBANK.NS",  4963),
-    ("INFY",       "INFY.NS",       1594),
-    ("TCS",        "TCS.NS",        11536),
-    ("SBIN",       "SBIN.NS",       3045),
-    ("AXISBANK",   "AXISBANK.NS",   5900),
-    ("KOTAKBANK",  "KOTAKBANK.NS",  1922),
-    ("LT",         "LT.NS",         11483),
-    ("BHARTIARTL", "BHARTIARTL.NS", 10604),
-    ("BAJFINANCE", "BAJFINANCE.NS", 317),
-    ("MARUTI",     "MARUTI.NS",     10999),
-    ("SUNPHARMA",  "SUNPHARMA.NS",  3351),
-    ("HCLTECH",    "HCLTECH.NS",    7229),
-    ("WIPRO",      "WIPRO.NS",      3787),
+    # (symbol, yf_ticker, dhan_security_id, sector)
+    ("RELIANCE",   "RELIANCE.NS",   2885,  "ENERGY"),
+    ("HDFCBANK",   "HDFCBANK.NS",   1333,  "BANK"),
+    ("ICICIBANK",  "ICICIBANK.NS",  4963,  "BANK"),
+    ("INFY",       "INFY.NS",       1594,  "IT"),
+    ("TCS",        "TCS.NS",        11536, "IT"),
+    ("SBIN",       "SBIN.NS",       3045,  "BANK"),
+    ("AXISBANK",   "AXISBANK.NS",   5900,  "BANK"),
+    ("KOTAKBANK",  "KOTAKBANK.NS",  1922,  "BANK"),
+    ("LT",         "LT.NS",         11483, "INFRA"),
+    ("BHARTIARTL", "BHARTIARTL.NS", 10604, "TELECOM"),
+    ("BAJFINANCE", "BAJFINANCE.NS", 317,   "NBFC"),
+    ("MARUTI",     "MARUTI.NS",     10999, "AUTO"),
+    ("SUNPHARMA",  "SUNPHARMA.NS",  3351,  "PHARMA"),
+    ("HCLTECH",    "HCLTECH.NS",    7229,  "IT"),
+    ("WIPRO",      "WIPRO.NS",      3787,  "IT"),
 ]
+
+# Sector → NSE index ticker (for sector momentum filter)
+SECTOR_INDICES = {
+    "BANK":    "^NSEBANK",
+    "IT":      "^CNXIT",
+    "AUTO":    "^CNXAUTO",
+    "PHARMA":  "^CNXPHARMA",
+    "NBFC":    "^CNXFIN",
+    "INFRA":   "^CNXINFRA",
+    "ENERGY":  "^CNXENERGY",
+    "TELECOM": "^CNXTELECOM",
+}
 
 # ─────────────────────────────────────────────────────────────────
 # Strategy params
@@ -239,6 +252,47 @@ def fetch(ticker):
     except: return None
 
 # ─────────────────────────────────────────────────────────────────
+# Sector Momentum — top 2 green sectors of the day
+# ─────────────────────────────────────────────────────────────────
+def get_top_sectors():
+    """Fetch each sectoral index % change from open. Return top 2 positive sectors.
+    Returns None if data unavailable (caller treats None = allow all sectors)."""
+    perf = {}
+    for sector, ticker in SECTOR_INDICES.items():
+        df = fetch(ticker)
+        if df is None or df.empty:
+            continue
+        today = df[df.index.date == datetime.now().date()]
+        if len(today) < 2:
+            continue
+        open_px = to_float(today["Open"].iloc[0])
+        last_px = to_float(today["Close"].iloc[-1])
+        if open_px > 0:
+            perf[sector] = (last_px - open_px) / open_px * 100
+    if not perf:
+        return None
+    ranked = sorted(perf.items(), key=lambda x: x[1], reverse=True)
+    top = [s for s, pct in ranked[:3] if pct > 0]
+    result_str = ", ".join(f"{s}({perf[s]:+.2f}%)" for s in ranked[:4])
+    print(f"  📊 Sector scan: {result_str}")
+    return top if top else None
+
+def calc_vwap(df_today):
+    """VWAP = cumulative(typical_price * volume) / cumulative(volume)."""
+    tp = (df_today["High"] + df_today["Low"] + df_today["Close"]) / 3
+    vol = df_today["Volume"].replace(0, np.nan).fillna(1)
+    vwap = (tp * vol).cumsum() / vol.cumsum()
+    return to_float(vwap.iloc[-1])
+
+def open_equals_low(df_today, tolerance=0.0015):
+    """True if any of the last 4 candles had Open ≈ Low (no sellers from open)."""
+    for _, row in df_today.iloc[-4:].iterrows():
+        o, l = to_float(row["Open"]), to_float(row["Low"])
+        if o > 0 and (o - l) / o <= tolerance:
+            return True
+    return False
+
+# ─────────────────────────────────────────────────────────────────
 # Trend
 # ─────────────────────────────────────────────────────────────────
 def nifty_trend():
@@ -266,17 +320,30 @@ def find_signal(symbol, yf_ticker, security_id, market_dir):
     first = today.iloc[0]
     last = today.iloc[-1]
 
-    # Filters
+    # Filter 1: First candle not marubozu
     if body_ratio(first["Open"],first["High"],first["Low"],first["Close"]) >= MARUBOZU_TH:
         return None
+    # Filter 2: Day hasn't moved too far already
     move = abs(last["Close"] - first["Open"]) / first["Open"]
     if move > MAX_MOVEMENT: return None
 
-    # Last 3 candles -- no marubozu/big-body/neutral
+    # Filter 3: Last 3 candles balanced (no marubozu/big/neutral)
     for _, r in today.iloc[-4:-1].iterrows():
         ratio = body_ratio(r["Open"], r["High"], r["Low"], r["Close"])
         if ratio >= MARUBOZU_TH or ratio > BIG_BODY_TH or ratio < NEUTRAL_TH:
             return None
+
+    # Filter 4: VWAP — close must be above VWAP for LONG (institutional bias)
+    vwap = calc_vwap(today)
+    entry_close = to_float(last["Close"])
+    if market_dir == "BULL" and entry_close < vwap:
+        return None
+    if market_dir == "BEAR" and entry_close > vwap:
+        return None
+
+    # Filter 5: Open=Low on any recent candle (no sellers, clean bullish pressure)
+    if market_dir == "BULL" and not open_equals_low(today):
+        return None
 
     # Lifeline + HA BO
     colors = today["color"].tail(4).tolist()
@@ -295,7 +362,7 @@ def find_signal(symbol, yf_ticker, security_id, market_dir):
         side = "SHORT"
     if not side: return None
 
-    entry = float(last["Close"])
+    entry = entry_close
     if side == "LONG":
         sl = max(min(prior_l, last["Low"])*0.999, entry*(1-SL_PCT))
         risk = entry - sl
@@ -424,6 +491,8 @@ def bot_loop():
     dhan = get_dhan()
     sess = oi_session()
     mode = "PAPER" if PAPER_MODE else "LIVE"
+    top_sectors = None        # populated at 9:30, refreshed every 30 min
+    sector_checked_at = None  # timestamp of last sector scan
     tg(f"🤖 <b>Lifeline Bot Started</b> [{mode}]\n"
        f"Capital: ₹{CAPITAL:,} | Risk: {RISK_PCT*100:.0f}%\n"
        f"Watchlist: {len(WATCHLIST)} stocks\n"
@@ -480,9 +549,24 @@ def bot_loop():
                       f"P&L=₹{state['daily_pnl']:+.0f}")
 
                 if trend in ("BULL", "BEAR"):
-                    for sym, yft, secid in WATCHLIST:
+                    # Refresh sector momentum every 30 min (first time after 9:30)
+                    now_dt = datetime.now()
+                    if (sector_checked_at is None or
+                            (now_dt - sector_checked_at).seconds >= 1800):
+                        top_sectors = get_top_sectors()
+                        sector_checked_at = now_dt
+                        if top_sectors:
+                            tg(f"🏆 Leading sectors: {', '.join(top_sectors)}")
+                        else:
+                            print("  ⚠️ Sector data unavailable — scanning all sectors")
+
+                    for sym, yft, secid, sector in WATCHLIST:
                         if sym in state["open_positions"]: continue
                         if sym in state["alerted"]: continue
+
+                        # Sector filter — skip stocks NOT in today's top sectors
+                        if top_sectors and sector not in top_sectors:
+                            continue
 
                         sig = find_signal(sym, yft, secid, trend)
                         if sig is None: continue
@@ -502,11 +586,12 @@ def bot_loop():
                             "qty": sig["qty"], "entry_risk": abs(sig["entry"]-sig["sl"]),
                             "yf_ticker": yft, "security_id": secid,
                             "order_id": oid, "type": sig["type"],
+                            "sector": sector,
                         }
                         state["alerted"].append(sym)
                         state["trades_today"] += 1
                         tg(f"🔔 <b>{sig['side']}</b> {sym} ({sig['type']}) [{mode}]\n"
-                           f"Entry: ₹{sig['entry']} | SL: ₹{sig['sl']} ({sig['sl_pct']}%)\n"
+                           f"Sector: {sector} | Entry: ₹{sig['entry']} | SL: ₹{sig['sl']} ({sig['sl_pct']}%)\n"
                            f"Target: ₹{sig['target']} (1:{TARGET_R:.0f})\n"
                            f"Qty: {sig['qty']} | OrderID: {oid}\n"
                            f"OI: {why}")
