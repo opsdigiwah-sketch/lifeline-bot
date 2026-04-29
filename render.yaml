@@ -1,0 +1,13 @@
+services:
+  - type: cron
+    name: lifeline-trading-bot
+    runtime: python
+    plan: free
+    schedule: "45 3 * * 1-5"   # 9:15 AM IST (UTC+5:30) every Mon-Fri
+    buildCommand: pip install -r requirements.txt
+    startCommand: python ZERO_TOUCH_BOT.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
