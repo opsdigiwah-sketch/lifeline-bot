@@ -115,6 +115,9 @@ MAX_MOVEMENT    = 0.018
 MARUBOZU_TH     = 0.85
 NEUTRAL_TH      = 0.25
 BIG_BODY_TH     = 0.80
+DEAD_ZONE_START = dtime(11, 30)
+DEAD_ZONE_END   = dtime(12, 30)
+VOL_SPIKE_MULT  = 1.5
 
 # ─────────────────────────────────────────────────────────────────
 # State (persisted to disk so bot can resume)
@@ -362,6 +365,21 @@ def find_signal(symbol, yf_ticker, security_id, market_dir):
         side = "SHORT"
     if not side: return None
 
+    # Filter: EMA 9 > 21 trend confirmation (on full 2-day dataset)
+    if len(df) >= 21:
+        ema9  = df["Close"].ewm(span=9,  adjust=False).mean()
+        ema21 = df["Close"].ewm(span=21, adjust=False).mean()
+        if side == "LONG"  and to_float(ema9.iloc[-1]) <= to_float(ema21.iloc[-1]):
+            return None
+        if side == "SHORT" and to_float(ema9.iloc[-1]) >= to_float(ema21.iloc[-1]):
+            return None
+
+    # Filter: Volume spike on trigger candle (1.5x recent average)
+    avg_vol  = today["Volume"].iloc[-11:-1].mean()
+    last_vol = to_float(last["Volume"])
+    if avg_vol > 0 and last_vol < avg_vol * VOL_SPIKE_MULT:
+        return None
+
     entry = entry_close
     if side == "LONG":
         sl = max(min(prior_l, last["Low"])*0.999, entry*(1-SL_PCT))
@@ -541,8 +559,12 @@ def bot_loop():
                 manage_positions(state)
 
             # Look for new signals (only if under daily limit)
+            if DEAD_ZONE_START <= now <= DEAD_ZONE_END:
+                print(f"[{now.strftime('%H:%M')}] Dead zone (11:30-12:30) — no new entries")
+
             if (state["trades_today"] < MAX_TRADES_PER_DAY
-                    and ENTRY_START <= now <= ENTRY_CUTOFF):
+                    and ENTRY_START <= now <= ENTRY_CUTOFF
+                    and not (DEAD_ZONE_START <= now <= DEAD_ZONE_END)):
                 trend = nifty_trend()
                 print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Nifty={trend} | "
                       f"Trades today={state['trades_today']} | "
