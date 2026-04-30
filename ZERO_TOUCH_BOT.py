@@ -90,6 +90,86 @@ WATCHLIST = [
     ("WIPRO",      "WIPRO.NS",      3787,  "IT"),
 ]
 
+# ─────────────────────────────────────────────────────────────────
+# F&O Universe for dynamic morning scan (~72 liquid stocks)
+# ─────────────────────────────────────────────────────────────────
+FNO_UNIVERSE = [
+    # BANK
+    ("HDFCBANK",   "HDFCBANK.NS",    1333,  "BANK"),
+    ("ICICIBANK",  "ICICIBANK.NS",   4963,  "BANK"),
+    ("AXISBANK",   "AXISBANK.NS",    5900,  "BANK"),
+    ("SBIN",       "SBIN.NS",        3045,  "BANK"),
+    ("KOTAKBANK",  "KOTAKBANK.NS",   1922,  "BANK"),
+    ("BANKBARODA", "BANKBARODA.NS",  0,     "BANK"),
+    ("PNB",        "PNB.NS",         0,     "BANK"),
+    ("CANBK",      "CANBK.NS",       0,     "BANK"),
+    ("INDUSINDBK", "INDUSINDBK.NS",  0,     "BANK"),
+    ("IDFCFIRSTB", "IDFCFIRSTB.NS",  0,     "BANK"),
+    ("BANDHANBNK", "BANDHANBNK.NS",  0,     "BANK"),
+    ("FEDERALBNK", "FEDERALBNK.NS",  0,     "BANK"),
+    # NBFC
+    ("BAJFINANCE", "BAJFINANCE.NS",  317,   "NBFC"),
+    ("BAJAJFINSV", "BAJAJFINSV.NS",  0,     "NBFC"),
+    ("CHOLAFIN",   "CHOLAFIN.NS",    0,     "NBFC"),
+    ("MUTHOOTFIN", "MUTHOOTFIN.NS",  0,     "NBFC"),
+    ("LICHSGFIN",  "LICHSGFIN.NS",   0,     "NBFC"),
+    # IT
+    ("TCS",        "TCS.NS",         11536, "IT"),
+    ("INFY",       "INFY.NS",        1594,  "IT"),
+    ("HCLTECH",    "HCLTECH.NS",     7229,  "IT"),
+    ("WIPRO",      "WIPRO.NS",       3787,  "IT"),
+    ("TECHM",      "TECHM.NS",       0,     "IT"),
+    ("LTIM",       "LTIM.NS",        0,     "IT"),
+    ("MPHASIS",    "MPHASIS.NS",     0,     "IT"),
+    # AUTO
+    ("MARUTI",     "MARUTI.NS",      10999, "AUTO"),
+    ("TATAMOTORS", "TATAMOTORS.NS",  0,     "AUTO"),
+    ("M&M",        "M&M.NS",         0,     "AUTO"),
+    ("BAJAJ-AUTO", "BAJAJ-AUTO.NS",  0,     "AUTO"),
+    ("EICHERMOT",  "EICHERMOT.NS",   0,     "AUTO"),
+    ("HEROMOTOCO", "HEROMOTOCO.NS",  0,     "AUTO"),
+    ("ASHOKLEY",   "ASHOKLEY.NS",    0,     "AUTO"),
+    ("TVSMOTOR",   "TVSMOTOR.NS",    0,     "AUTO"),
+    # METAL
+    ("TATASTEEL",  "TATASTEEL.NS",   0,     "METAL"),
+    ("JSWSTEEL",   "JSWSTEEL.NS",    0,     "METAL"),
+    ("HINDALCO",   "HINDALCO.NS",    0,     "METAL"),
+    ("VEDL",       "VEDL.NS",        0,     "METAL"),
+    ("SAIL",       "SAIL.NS",        0,     "METAL"),
+    ("JINDALSTEL", "JINDALSTEL.NS",  0,     "METAL"),
+    # ENERGY
+    ("RELIANCE",   "RELIANCE.NS",    2885,  "ENERGY"),
+    ("ONGC",       "ONGC.NS",        0,     "ENERGY"),
+    ("BPCL",       "BPCL.NS",        0,     "ENERGY"),
+    ("IOC",        "IOC.NS",         0,     "ENERGY"),
+    ("HINDPETRO",  "HINDPETRO.NS",   0,     "ENERGY"),
+    ("GAIL",       "GAIL.NS",        0,     "ENERGY"),
+    ("POWERGRID",  "POWERGRID.NS",   0,     "ENERGY"),
+    ("NTPC",       "NTPC.NS",        0,     "ENERGY"),
+    ("TATAPOWER",  "TATAPOWER.NS",   0,     "ENERGY"),
+    ("ADANIGREEN", "ADANIGREEN.NS",  0,     "ENERGY"),
+    # PHARMA
+    ("SUNPHARMA",  "SUNPHARMA.NS",   3351,  "PHARMA"),
+    ("DRREDDY",    "DRREDDY.NS",     0,     "PHARMA"),
+    ("CIPLA",      "CIPLA.NS",       0,     "PHARMA"),
+    ("DIVISLAB",   "DIVISLAB.NS",    0,     "PHARMA"),
+    ("AUROPHARMA", "AUROPHARMA.NS",  0,     "PHARMA"),
+    ("LUPIN",      "LUPIN.NS",       0,     "PHARMA"),
+    # INFRA
+    ("LT",         "LT.NS",          11483, "INFRA"),
+    ("ADANIENT",   "ADANIENT.NS",    0,     "INFRA"),
+    ("ADANIPORTS", "ADANIPORTS.NS",  0,     "INFRA"),
+    ("DLF",        "DLF.NS",         0,     "INFRA"),
+    ("GODREJPROP", "GODREJPROP.NS",  0,     "INFRA"),
+    # FMCG
+    ("HINDUNILVR", "HINDUNILVR.NS",  0,     "FMCG"),
+    ("ITC",        "ITC.NS",         0,     "FMCG"),
+    ("BRITANNIA",  "BRITANNIA.NS",   0,     "FMCG"),
+    ("NESTLEIND",  "NESTLEIND.NS",   0,     "FMCG"),
+    # TELECOM
+    ("BHARTIARTL", "BHARTIARTL.NS",  10604, "TELECOM"),
+]
+
 # Sector → NSE index ticker (for sector momentum filter)
 SECTOR_INDICES = {
     "BANK":    "^NSEBANK",
@@ -100,6 +180,8 @@ SECTOR_INDICES = {
     "INFRA":   "^CNXINFRA",
     "ENERGY":  "^CNXENERGY",
     "TELECOM": "^CNXMEDIA",
+    "METAL":   "^CNXMETAL",
+    "FMCG":    "^CNXFMCG",
 }
 
 # ─────────────────────────────────────────────────────────────────
@@ -496,6 +578,63 @@ def manage_positions(state):
     save_state(state)
 
 # ─────────────────────────────────────────────────────────────────
+# Morning Scan — dynamic watchlist from F&O universe
+# ─────────────────────────────────────────────────────────────────
+def morning_scan():
+    """Rank FNO_UNIVERSE by ATR + volume surge. Returns top-15 as today's watchlist."""
+    tg("🔍 Morning scan — ranking 72 F&O stocks...")
+    tickers = [yft for _, yft, _, _ in FNO_UNIVERSE]
+    try:
+        raw = yf.download(
+            tickers, period="60d", interval="1d",
+            group_by="ticker", auto_adjust=False,
+            progress=False, threads=True
+        )
+    except Exception as e:
+        tg(f"⚠️ Scan download failed ({e}) — using default watchlist")
+        return list(WATCHLIST)
+
+    scores = []
+    for sym, yft, did, sector in FNO_UNIVERSE:
+        try:
+            df = raw[yft].dropna(subset=["Close", "Volume"])
+            if len(df) < 22:
+                continue
+            px = float(df["Close"].iloc[-1])
+            if px < 50:
+                continue
+            hl = df["High"] - df["Low"]
+            hc = (df["High"] - df["Close"].shift(1)).abs()
+            lc = (df["Low"]  - df["Close"].shift(1)).abs()
+            atr_pct = float(
+                pd.concat([hl, hc, lc], axis=1).max(axis=1)
+                .rolling(14).mean().iloc[-1] / px * 100
+            )
+            if atr_pct < 1.5:
+                continue
+            avg_vol   = float(df["Volume"].iloc[-21:-1].mean())
+            vol_ratio = float(df["Volume"].iloc[-1]) / avg_vol if avg_vol > 0 else 0
+            prev_chg  = abs(float(df["Close"].pct_change().iloc[-1]) * 100)
+            score     = atr_pct * 0.4 + vol_ratio * 0.3 + prev_chg * 0.3
+            scores.append((score, sym, yft, did, sector,
+                           round(atr_pct, 2), round(vol_ratio, 2)))
+        except Exception:
+            continue
+
+    if not scores:
+        tg("⚠️ Scan returned 0 results — using default watchlist")
+        return list(WATCHLIST)
+
+    scores.sort(reverse=True)
+    top = scores[:15]
+    wl  = [(s, y, d, sec) for _, s, y, d, sec, *_ in top]
+    lines = ["🌅 <b>Today's Watchlist (Dynamic Scan)</b>"]
+    for _, s, _, _, sec, atr, vol in top:
+        lines.append(f"  {s} ({sec}) | ATR {atr}% | Vol {vol:.1f}x")
+    tg("\n".join(lines))
+    return wl
+
+# ─────────────────────────────────────────────────────────────────
 # MAIN BOT LOOP
 # ─────────────────────────────────────────────────────────────────
 def bot_loop():
@@ -513,8 +652,9 @@ def bot_loop():
     sector_checked_at = None  # timestamp of last sector scan
     tg(f"🤖 <b>Lifeline Bot Started</b> [{mode}]\n"
        f"Capital: ₹{CAPITAL:,} | Risk: {RISK_PCT*100:.0f}%\n"
-       f"Watchlist: {len(WATCHLIST)} stocks\n"
+       f"Universe: {len(FNO_UNIVERSE)} stocks | Running morning scan...\n"
        f"Time: {datetime.now().strftime('%H:%M:%S')}")
+    watchlist_today = morning_scan()
 
     while True:
         try:
@@ -582,7 +722,7 @@ def bot_loop():
                         else:
                             print("  ⚠️ Sector data unavailable — scanning all sectors")
 
-                    for sym, yft, secid, sector in WATCHLIST:
+                    for sym, yft, secid, sector in watchlist_today:
                         if sym in state["open_positions"]: continue
                         if sym in state["alerted"]: continue
 
