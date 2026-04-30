@@ -99,7 +99,7 @@ SECTOR_INDICES = {
     "NBFC":    "^CNXFIN",
     "INFRA":   "^CNXINFRA",
     "ENERGY":  "^CNXENERGY",
-    "TELECOM": "^CNXTELECOM",
+    "TELECOM": "^CNXMEDIA",
 }
 
 # ─────────────────────────────────────────────────────────────────
