@@ -581,36 +581,8 @@ def manage_positions(state):
 # Morning Scan — dynamic watchlist from F&O universe
 # ─────────────────────────────────────────────────────────────────
 def morning_scan():
-    """Rank FNO_UNIVERSE by ATR + volume surge, filtered to top sectors. Returns top-15 as today's watchlist."""
-    tg("🔍 Morning scan — ranking sectors then stocks...")
-
-    # Step 1: Rank sectors by prev-day performance
-    top_sectors = set(SECTOR_INDICES.keys())  # fallback: all sectors
-    try:
-        sec_raw = yf.download(
-            list(SECTOR_INDICES.values()), period="5d", interval="1d",
-            group_by="ticker", auto_adjust=False, progress=False, threads=True
-        )
-        sector_chg = {}
-        for sector, ticker in SECTOR_INDICES.items():
-            try:
-                df_s = sec_raw[ticker].dropna(subset=["Close"])
-                if len(df_s) >= 2:
-                    sector_chg[sector] = float(df_s["Close"].pct_change().iloc[-1] * 100)
-            except Exception:
-                pass
-        if sector_chg:
-            ranked = sorted(sector_chg.items(), key=lambda x: x[1], reverse=True)
-            top_sectors = {s for s, _ in ranked[:5]}
-            sec_lines = ["📊 <b>Sector Ranks (prev day)</b>"]
-            for i, (s, c) in enumerate(ranked, 1):
-                mark = "✅" if s in top_sectors else "❌"
-                sec_lines.append(f"  {mark} {i}. {s}: {c:+.2f}%")
-            tg("\n".join(sec_lines))
-    except Exception as e:
-        tg(f"⚠️ Sector data failed ({e}) — scanning all sectors")
-
-    # Step 2: Download stock data
+    """Rank FNO_UNIVERSE by ATR + volume surge. Returns top-15 as today's watchlist."""
+    tg("🔍 Morning scan — ranking 72 F&O stocks...")
     tickers = [yft for _, yft, _, _ in FNO_UNIVERSE]
     try:
         raw = yf.download(
@@ -622,11 +594,8 @@ def morning_scan():
         tg(f"⚠️ Scan download failed ({e}) — using default watchlist")
         return list(WATCHLIST)
 
-    # Step 3: Score only stocks in top sectors
     scores = []
     for sym, yft, did, sector in FNO_UNIVERSE:
-        if sector not in top_sectors:
-            continue
         try:
             df = raw[yft].dropna(subset=["Close", "Volume"])
             if len(df) < 22:
