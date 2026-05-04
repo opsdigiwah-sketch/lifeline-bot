@@ -358,7 +358,7 @@ def get_top_sectors():
         return None
     ranked = sorted(perf.items(), key=lambda x: x[1], reverse=True)
     top = [s for s, pct in ranked[:3] if pct > 0]
-    result_str = ", ".join(f"{s}({perf[s]:+.2f}%)" for s in ranked[:4])
+    result_str = ", ".join(f"{s}({pct:+.2f}%)" for s, pct in ranked[:4])
     print(f"  📊 Sector scan: {result_str}")
     return top if top else None
 
