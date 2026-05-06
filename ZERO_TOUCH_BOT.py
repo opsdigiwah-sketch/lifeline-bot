@@ -581,12 +581,17 @@ def manage_positions(state):
 # Morning Scan — dynamic watchlist from F&O universe
 # ─────────────────────────────────────────────────────────────────
 def morning_scan():
-    """Rank FNO_UNIVERSE by ATR + volume surge. Returns top-15 as today's watchlist."""
-    tg("🔍 Morning scan — ranking 72 F&O stocks...")
+    """
+    Vinay Bhelkar strategy scan:
+      BUY  candidates — within 8% of 52W High + volume surge + move 0.5-1.80%
+      SELL candidates — within 8% of 52W Low  + volume surge + move 0.5-1.80%
+    Falls back to ATR scoring if < 5 stocks qualify.
+    """
+    tg("🔍 Morning scan — 52W High/Low + Volume filter...")
     tickers = [yft for _, yft, _, _ in FNO_UNIVERSE]
     try:
         raw = yf.download(
-            tickers, period="60d", interval="1d",
+            tickers, period="1y", interval="1d",
             group_by="ticker", auto_adjust=False,
             progress=False, threads=True
         )
@@ -594,6 +599,77 @@ def morning_scan():
         tg(f"⚠️ Scan download failed ({e}) — using default watchlist")
         return list(WATCHLIST)
 
+    buy_cands, sell_cands = [], []
+
+    for sym, yft, did, sector in FNO_UNIVERSE:
+        try:
+            df = raw[yft].dropna(subset=["Close", "Volume"])
+            if len(df) < 50:
+                continue
+            px = float(df["Close"].iloc[-1])
+            if px < 100:
+                continue
+
+            high_52w = float(df["High"].max())
+            low_52w  = float(df["Low"].min())
+
+            prev_chg     = float(df["Close"].pct_change().iloc[-1] * 100)
+            prev_chg_abs = abs(prev_chg)
+            if prev_chg_abs < 0.3:
+                continue
+
+            avg_vol   = float(df["Volume"].iloc[-21:-1].mean())
+            vol_ratio = float(df["Volume"].iloc[-1]) / avg_vol if avg_vol > 0 else 0
+
+            dist_high = (high_52w - px) / high_52w * 100
+            dist_low  = (px - low_52w)  / low_52w  * 100
+
+            if dist_high <= 8.0:
+                score = (1 - dist_high / 8) * 50 + vol_ratio * 30 + prev_chg_abs * 20
+                buy_cands.append((score, sym, yft, did, sector,
+                                  round(dist_high, 1), round(vol_ratio, 2),
+                                  round(prev_chg, 2), round(px, 1)))
+
+            if dist_low <= 8.0:
+                score = (1 - dist_low / 8) * 50 + vol_ratio * 30 + prev_chg_abs * 20
+                sell_cands.append((score, sym, yft, did, sector,
+                                   round(dist_low, 1), round(vol_ratio, 2),
+                                   round(prev_chg, 2), round(px, 1)))
+        except Exception:
+            continue
+
+    buy_cands.sort(reverse=True)
+    sell_cands.sort(reverse=True)
+    top_buy  = buy_cands[:8]
+    top_sell = sell_cands[:7]
+
+    # fallback to ATR scoring if barely anything qualified
+    if len(top_buy) + len(top_sell) < 5:
+        tg("⚠️ 52W scan < 5 results — falling back to ATR scoring")
+        return _morning_scan_atr(raw)
+
+    seen = {}
+    for item in top_buy + top_sell:
+        _, s, y, d, sec, *_ = item
+        if s not in seen:
+            seen[s] = (s, y, d, sec)
+    wl = list(seen.values())
+
+    lines = [f"🌅 <b>Today's Watchlist — {len(wl)} stocks</b>"]
+    if top_buy:
+        lines.append("\n📈 <b>BUY side (near 52W High):</b>")
+        for _, s, _, _, sec, dist, vol, chg, px in top_buy:
+            lines.append(f"  • {s} ({sec}) | {dist:.1f}% from 52WH | Vol {vol:.1f}x | Prev {chg:+.1f}% | ₹{px}")
+    if top_sell:
+        lines.append("\n📉 <b>SELL side (near 52W Low):</b>")
+        for _, s, _, _, sec, dist, vol, chg, px in top_sell:
+            lines.append(f"  • {s} ({sec}) | {dist:.1f}% from 52WL | Vol {vol:.1f}x | Prev {chg:+.1f}% | ₹{px}")
+    tg("\n".join(lines))
+    return wl
+
+
+def _morning_scan_atr(raw):
+    """ATR fallback used when 52W filter returns too few stocks."""
     scores = []
     for sym, yft, did, sector in FNO_UNIVERSE:
         try:
@@ -620,15 +696,12 @@ def morning_scan():
                            round(atr_pct, 2), round(vol_ratio, 2)))
         except Exception:
             continue
-
     if not scores:
-        tg("⚠️ Scan returned 0 results — using default watchlist")
         return list(WATCHLIST)
-
     scores.sort(reverse=True)
     top = scores[:15]
     wl  = [(s, y, d, sec) for _, s, y, d, sec, *_ in top]
-    lines = ["🌅 <b>Today's Watchlist (Dynamic Scan)</b>"]
+    lines = ["🌅 <b>Today's Watchlist (ATR Fallback)</b>"]
     for _, s, _, _, sec, atr, vol in top:
         lines.append(f"  {s} ({sec}) | ATR {atr}% | Vol {vol:.1f}x")
     tg("\n".join(lines))
