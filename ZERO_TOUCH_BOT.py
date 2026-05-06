@@ -381,12 +381,48 @@ def open_equals_low(df_today, tolerance=0.0015):
 # Trend
 # ─────────────────────────────────────────────────────────────────
 def nifty_trend():
+    """
+    Nifty trend using Vinay Bhelkar gap + 1st candle volume logic:
+    - High vol 1st candle = trend reversal warning → need HA confirmation
+    - Low vol 1st candle = trend continues in gap direction
+    - Flat open = HA color count decides
+    """
     df = fetch("^NSEI")
     if df is None: return "UNKNOWN"
     today = df[df.index.date == datetime.now().date()]
-    if len(today) < 5: return "UNKNOWN"
+    if len(today) < 3: return "UNKNOWN"
+
+    prev_days = df[df.index.date < datetime.now().date()]
+    gap_pct = 0.0
+    first_vol_high = False
+    if len(prev_days) >= 2:
+        prev_close = to_float(prev_days["Close"].iloc[-1])
+        today_open = to_float(today["Open"].iloc[0])
+        if prev_close > 0:
+            gap_pct = (today_open - prev_close) / prev_close * 100
+        prev_vol_avg = float(prev_days["Volume"].iloc[-5:].mean()) if len(prev_days) >= 5 else 0
+        first_vol = to_float(today["Volume"].iloc[0])
+        if prev_vol_avg > 0:
+            first_vol_high = first_vol > prev_vol_avg * 0.7
+
+    first = today.iloc[0]
+    first_color = "G" if to_float(first["Close"]) > to_float(first["Open"]) else "R"
+
     h = ha(today)
     g, r = (h["color"]=="G").sum(), (h["color"]=="R").sum()
+
+    if first_vol_high:
+        # High vol 1st candle = possible reversal, need HA confirmation
+        if len(today) >= 5:
+            if g > r * 1.4: return "BULL"
+            if r > g * 1.4: return "BEAR"
+        return "SIDE"
+
+    # Low vol — gap direction reliable
+    if gap_pct > 0.3 and first_color == "G": return "BULL"
+    if gap_pct < -0.3 and first_color == "R": return "BEAR"
+
+    # Flat open — HA count
     if g > r * 1.3: return "BULL"
     if r > g * 1.3: return "BEAR"
     return "SIDE"
@@ -587,7 +623,7 @@ def morning_scan():
       SELL candidates — within 8% of 52W Low  + volume surge + move 0.5-1.80%
     Falls back to ATR scoring if < 5 stocks qualify.
     """
-    tg("🔍 Morning scan — 52W High/Low + Volume filter...")
+    tg("🔍 Morning scan — Sector rank + 52W High/Low + Volume...")
     tickers = [yft for _, yft, _, _ in FNO_UNIVERSE]
     try:
         raw = yf.download(
@@ -598,6 +634,29 @@ def morning_scan():
     except Exception as e:
         tg(f"⚠️ Scan download failed ({e}) — using default watchlist")
         return list(WATCHLIST)
+
+    # ── Prev-day sector performance ranking ──────────────────────
+    sector_perf = {}
+    try:
+        sec_tickers = list(SECTOR_INDICES.values())
+        raw_sec = yf.download(sec_tickers, period="5d", interval="1d",
+                               group_by="ticker", auto_adjust=False,
+                               progress=False, threads=True)
+        for sec, idx_t in SECTOR_INDICES.items():
+            try:
+                sdf = raw_sec[idx_t].dropna(subset=["Close"])
+                if len(sdf) >= 2:
+                    chg = (float(sdf["Close"].iloc[-1]) - float(sdf["Close"].iloc[-2])) \
+                          / float(sdf["Close"].iloc[-2]) * 100
+                    sector_perf[sec] = round(chg, 2)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    ranked_sectors = sorted(sector_perf, key=lambda s: sector_perf.get(s, 0), reverse=True)
+    top_bull_sec   = set(ranked_sectors[:3])   # top 3 for buy boost
+    top_bear_sec   = set(ranked_sectors[-3:])  # bottom 3 for sell boost
 
     buy_cands, sell_cands = [], []
 
@@ -624,14 +683,17 @@ def morning_scan():
             dist_high = (high_52w - px) / high_52w * 100
             dist_low  = (px - low_52w)  / low_52w  * 100
 
+            sec_mult_bull = 1.25 if sector in top_bull_sec else 1.0
+            sec_mult_bear = 1.25 if sector in top_bear_sec else 1.0
+
             if dist_high <= 8.0:
-                score = (1 - dist_high / 8) * 50 + vol_ratio * 30 + prev_chg_abs * 20
+                score = ((1 - dist_high / 8) * 50 + vol_ratio * 30 + prev_chg_abs * 20) * sec_mult_bull
                 buy_cands.append((score, sym, yft, did, sector,
                                   round(dist_high, 1), round(vol_ratio, 2),
                                   round(prev_chg, 2), round(px, 1)))
 
             if dist_low <= 8.0:
-                score = (1 - dist_low / 8) * 50 + vol_ratio * 30 + prev_chg_abs * 20
+                score = ((1 - dist_low / 8) * 50 + vol_ratio * 30 + prev_chg_abs * 20) * sec_mult_bear
                 sell_cands.append((score, sym, yft, did, sector,
                                    round(dist_low, 1), round(vol_ratio, 2),
                                    round(prev_chg, 2), round(px, 1)))
@@ -656,14 +718,26 @@ def morning_scan():
     wl = list(seen.values())
 
     lines = [f"🌅 <b>Today's Watchlist — {len(wl)} stocks</b>"]
+
+    if sector_perf:
+        top3 = ranked_sectors[:3]
+        bot3 = ranked_sectors[-3:]
+        sec_str  = " | ".join(f"{s}({sector_perf[s]:+.1f}%)" for s in top3)
+        sec_str2 = " | ".join(f"{s}({sector_perf[s]:+.1f}%)" for s in bot3)
+        lines.append(f"\n📊 <b>Sectors:</b>")
+        lines.append(f"  Bull: {sec_str}")
+        lines.append(f"  Bear: {sec_str2}")
+
     if top_buy:
         lines.append("\n📈 <b>BUY side (near 52W High):</b>")
         for _, s, _, _, sec, dist, vol, chg, px in top_buy:
-            lines.append(f"  • {s} ({sec}) | {dist:.1f}% from 52WH | Vol {vol:.1f}x | Prev {chg:+.1f}% | ₹{px}")
+            tag = " ★" if sec in top_bull_sec else ""
+            lines.append(f"  • {s} ({sec}){tag} | {dist:.1f}% from 52WH | Vol {vol:.1f}x | Prev {chg:+.1f}% | ₹{px}")
     if top_sell:
         lines.append("\n📉 <b>SELL side (near 52W Low):</b>")
         for _, s, _, _, sec, dist, vol, chg, px in top_sell:
-            lines.append(f"  • {s} ({sec}) | {dist:.1f}% from 52WL | Vol {vol:.1f}x | Prev {chg:+.1f}% | ₹{px}")
+            tag = " ★" if sec in top_bear_sec else ""
+            lines.append(f"  • {s} ({sec}){tag} | {dist:.1f}% from 52WL | Vol {vol:.1f}x | Prev {chg:+.1f}% | ₹{px}")
     tg("\n".join(lines))
     return wl
 
