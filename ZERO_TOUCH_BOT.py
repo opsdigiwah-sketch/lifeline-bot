@@ -466,11 +466,22 @@ def find_signal(symbol, yf_ticker, security_id, market_dir):
     if market_dir == "BULL" and not open_equals_low(today):
         return None
 
+    # Change 3: Gap + big body first candle → skip HA lifeline, use only breakout
+    prev_days = df[df.index.date < datetime.now().date()]
+    first_is_big_gap = False
+    if len(prev_days) > 0:
+        prev_close = to_float(prev_days["Close"].iloc[-1])
+        today_open = to_float(first["Open"])
+        if prev_close > 0:
+            gap_pct_stock = abs((today_open - prev_close) / prev_close * 100)
+            first_body_r  = body_ratio(first["Open"], first["High"], first["Low"], first["Close"])
+            first_is_big_gap = gap_pct_stock > 0.5 and first_body_r > 0.6
+
     # Lifeline + HA BO
     colors = today["color"].tail(4).tolist()
     middle, last_c = colors[:-1], colors[-1]
-    bull_ll = sum(c=="R" for c in middle) >= 2 and last_c == "G"
-    bear_ll = sum(c=="G" for c in middle) >= 2 and last_c == "R"
+    bull_ll = (sum(c=="R" for c in middle) >= 2 and last_c == "G") and not first_is_big_gap
+    bear_ll = (sum(c=="G" for c in middle) >= 2 and last_c == "R") and not first_is_big_gap
     prior_h = today.iloc[:-1]["High"].max()
     prior_l = today.iloc[:-1]["Low"].min()
     bo_long  = last["Close"] > prior_h and last_c == "G"
@@ -492,10 +503,20 @@ def find_signal(symbol, yf_ticker, security_id, market_dir):
         if side == "SHORT" and to_float(ema9.iloc[-1]) >= to_float(ema21.iloc[-1]):
             return None
 
-    # Filter: Volume spike on trigger candle (1.5x recent average)
+    # Change 2: 2-3 day range breakout exception — volume not required
+    range_break = False
+    if len(prev_days) >= 3:
+        range_high_3d = float(prev_days["High"].iloc[-3:].max())
+        range_low_3d  = float(prev_days["Low"].iloc[-3:].min())
+        if side == "LONG"  and to_float(last["Close"]) > range_high_3d:
+            range_break = True
+        if side == "SHORT" and to_float(last["Close"]) < range_low_3d:
+            range_break = True
+
+    # Filter: Volume spike on trigger candle (skip if range breakout)
     avg_vol  = today["Volume"].iloc[-11:-1].mean()
     last_vol = to_float(last["Volume"])
-    if avg_vol > 0 and last_vol < avg_vol * VOL_SPIKE_MULT:
+    if not range_break and avg_vol > 0 and last_vol < avg_vol * VOL_SPIKE_MULT:
         return None
 
     entry = entry_close
@@ -702,8 +723,21 @@ def morning_scan():
 
     buy_cands.sort(reverse=True)
     sell_cands.sort(reverse=True)
-    top_buy  = buy_cands[:8]
-    top_sell = sell_cands[:7]
+
+    def _sector_cap(cands, limit=2, total=8):
+        seen = {}
+        out  = []
+        for item in cands:
+            sec = item[4]
+            if seen.get(sec, 0) < limit:
+                out.append(item)
+                seen[sec] = seen.get(sec, 0) + 1
+            if len(out) >= total:
+                break
+        return out
+
+    top_buy  = _sector_cap(buy_cands,  limit=2, total=8)
+    top_sell = _sector_cap(sell_cands, limit=2, total=7)
 
     # fallback to ATR scoring if barely anything qualified
     if len(top_buy) + len(top_sell) < 5:
