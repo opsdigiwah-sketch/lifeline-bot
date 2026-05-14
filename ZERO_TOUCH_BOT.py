@@ -654,7 +654,7 @@ def morning_scan():
         )
     except Exception as e:
         tg(f"⚠️ Scan download failed ({e}) — using default watchlist")
-        return list(WATCHLIST)
+        return [(s, y, d, sec, None, False) for s, y, d, sec in WATCHLIST]
 
     # ── Prev-day sector performance ranking ──────────────────────
     sector_perf = {}
@@ -745,11 +745,19 @@ def morning_scan():
         return _morning_scan_atr(raw)
 
     seen = {}
-    for item in top_buy + top_sell:
-        _, s, y, d, sec, *_ = item
-        if s not in seen:
-            seen[s] = (s, y, d, sec)
+    for is_buy, items, top_secs in [
+        (True,  top_buy,  top_bull_sec),
+        (False, top_sell, top_bear_sec),
+    ]:
+        for item in items:
+            _, s, y, d, sec, *_ = item
+            if s not in seen:
+                starred = sec in top_secs
+                side    = "BUY" if is_buy else "SELL"
+                seen[s] = (s, y, d, sec, side, starred)
     wl = list(seen.values())
+    # ★ stocks scanned first in bot_loop (matters when MAX_TRADES_PER_DAY cap hits)
+    wl.sort(key=lambda x: (not x[5], x[4]))
 
     lines = [f"🌅 <b>Today's Watchlist — {len(wl)} stocks</b>"]
 
@@ -805,10 +813,10 @@ def _morning_scan_atr(raw):
         except Exception:
             continue
     if not scores:
-        return list(WATCHLIST)
+        return [(s, y, d, sec, None, False) for s, y, d, sec in WATCHLIST]
     scores.sort(reverse=True)
     top = scores[:15]
-    wl  = [(s, y, d, sec) for _, s, y, d, sec, *_ in top]
+    wl  = [(s, y, d, sec, None, False) for _, s, y, d, sec, *_ in top]
     lines = ["🌅 <b>Today's Watchlist (ATR Fallback)</b>"]
     for _, s, _, _, sec, atr, vol in top:
         lines.append(f"  {s} ({sec}) | ATR {atr}% | Vol {vol:.1f}x")
@@ -903,7 +911,7 @@ def bot_loop():
                         else:
                             print("  ⚠️ Sector data unavailable — scanning all sectors")
 
-                    for sym, yft, secid, sector in watchlist_today:
+                    for sym, yft, secid, sector, side_pref, is_starred in watchlist_today:
                         if sym in state["open_positions"]: continue
                         if sym in state["alerted"]: continue
 
@@ -913,6 +921,19 @@ def bot_loop():
 
                         sig = find_signal(sym, yft, secid, trend)
                         if sig is None: continue
+
+                        # Direction lock: watchlist side must match signal side.
+                        # BUY-side stocks (near 52W High) → only LONG signals allowed.
+                        # SELL-side stocks (near 52W Low) → only SHORT signals allowed.
+                        # side_pref=None (fallback/ATR mode) → no restriction.
+                        if side_pref == "BUY" and sig["side"] == "SHORT":
+                            print(f"  {sym} blocked: BUY-side (near 52WH) but SHORT signal")
+                            state["alerted"].append(sym)
+                            continue
+                        if side_pref == "SELL" and sig["side"] == "LONG":
+                            print(f"  {sym} blocked: SELL-side (near 52WL) but LONG signal")
+                            state["alerted"].append(sym)
+                            continue
 
                         ok, why = oi_check(sess, sym, sig["side"])
                         if not ok:
@@ -933,7 +954,8 @@ def bot_loop():
                         }
                         state["alerted"].append(sym)
                         state["trades_today"] += 1
-                        tg(f"🔔 <b>{sig['side']}</b> {sym} ({sig['type']}) [{mode}]\n"
+                        star_tag = " ★" if is_starred else ""
+                        tg(f"🔔 <b>{sig['side']}</b> {sym}{star_tag} ({sig['type']}) [{mode}]\n"
                            f"Sector: {sector} | Entry: ₹{sig['entry']} | SL: ₹{sig['sl']} ({sig['sl_pct']}%)\n"
                            f"Target: ₹{sig['target']} (1:{TARGET_R:.0f})\n"
                            f"Qty: {sig['qty']} | OrderID: {oid}\n"
